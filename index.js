@@ -1,6 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+const connectedIds = new Map();
 
 const app = express();
 const Server = require("http").createServer(app);
@@ -25,13 +26,37 @@ io.on("connection", (socket) => {
     socket.emit("me", socket.id);
 
     //on for listen events
-    socket.on("callUser", ({ userTocall, from }) => {
-        io.to(userTocall).emit("callUser", { from, userId: userTocall });
+    socket.on("callUser", ({ userTocall, from, RTCsessionDescription }) => {
+        console.log('In callUser - ', RTCsessionDescription);
+        io.to(userTocall).emit("callUser", { from, userId: userTocall, RTCsessionDescription });
     });
 
-    socket.on("answerCall", ({ to, opponent }) => {
-        console.log('This Is comming --', to, "    ", opponent);
-        io.to(to).emit("callAccepted", opponent);
+    socket.on('randomCall', ({ whoIsCalling }) => {
+        console.log('in this');
+        let callingTo = connectedIds?.keys().next().value;
+        if (callingTo === socket.id) {
+            callingTo = connectedIds?.keys().next().value;
+        }
+        if (callingTo != socket.id) {
+            console.log('This is  Calling To User - ', callingTo);
+            io.to(callingTo).emit("callUser", { from: whoIsCalling, userId: callingTo });
+        }
+    });
+
+    socket.on("answerCall", ({ to, opponent, sessionDescription }) => {
+        io.to(to).emit("callAccepted", opponent, sessionDescription);
+    });
+
+    socket.on("ICEcandidate", (data) => {
+        console.log("ICEcandidate data.calleeId", data.calleeId);
+        let calleeId = data.calleeId;
+        let rtcMessage = data.rtcMessage;
+        console.log("socket.user emit", socket.user);
+
+        socket.to(calleeId).emit("ICEcandidate", {
+            sender: socket.user,
+            rtcMessage: rtcMessage,
+        });
     });
 
     socket.on("chessMove", ({ moveObj, towhom }) => {
@@ -39,10 +64,19 @@ io.on("connection", (socket) => {
     });
 
     socket.on("disconnect", () => {
+        console.log('this is disconnect');
         socket.broadcast.emit("CallEnded");
+        connectedIds?.delete(socket.id)
+
+        console.log('Set After Deleting Id -- ', socket.id);
+        console.log(connectedIds);
     });
 
     console.log("new Clint Connected  -  " + socket.id);
+    connectedIds?.set(socket.id, socket.id)
+
+    console.log('Set After Set new Id');
+    console.log(connectedIds);
 });
 
 Server.listen("8000", () => {
